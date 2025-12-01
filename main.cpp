@@ -396,6 +396,7 @@ class Mario : public GameObject{
         }
         //マリオの行動を更新
         void update(Stage* stage,SDL_Renderer* renderer,std::vector<item*>& items,const Uint8* keys){
+            if(check_LAVA(stage))is_alive = false;
             handle_vertical(stage,renderer,items,keys);
             handle_horizonal(keys,stage);
         }
@@ -442,8 +443,11 @@ class Mario : public GameObject{
 
         }
         void power_down(Stage* stage){
-            //無敵状態でなければ
-            if(SDL_GetTicks() >= invincible){
+            //無敵状態か判定
+            if(SDL_GetTicks() <= invincible){
+                return;
+            }
+            else{
                 if(state == Super){
                     prev_state = Default;
                     state = Flash;
@@ -460,9 +464,35 @@ class Mario : public GameObject{
                     is_alive = false;
                 }
             }
-            else{
-                return;
+        }
+        bool check_LAVA(Stage* stage){
+            // マリオの足元付近の座標を取得
+            float foot_y  = dstRect.y + dstRect.h - 1;   // 足の少し上
+            float left_x  = dstRect.x + 1;               // 左端から少し内側
+            float right_x = dstRect.x + dstRect.w - 1;   // 右端から少し内側
+
+            // タイル座標に変換
+            int row    = static_cast<int>(foot_y)  / stage->TILE_SIZE;
+            int col_L  = static_cast<int>(left_x)  / stage->TILE_SIZE;
+            int col_R  = static_cast<int>(right_x) / stage->TILE_SIZE;
+
+            // ステージ範囲外なら溶岩ではないとみなす
+            if (row < 0 || row >= stage->stageHeightInTiles()){
+                return false;
             }
+            if (col_L < 0 || col_L >= stage->stageWidthInTiles()){
+                return false;
+            }
+            if (col_R < 0 || col_R >= stage->stageWidthInTiles()){
+                return false; 
+            }
+
+            // 左足・右足下のタイルを取得
+            Stage::TileType tL = stage->get_tiletype(row, col_L);
+            Stage::TileType tR = stage->get_tiletype(row, col_R);
+
+            // どちらかが溶岩なら true
+            return(tL == Stage::TILE_LAVA || tR == Stage::TILE_LAVA);
         }
         void try_warp(Stage* stage);
         void fire(std::vector<Fireball*> fires,SDL_Renderer* renderer);
