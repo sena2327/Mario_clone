@@ -1,0 +1,15 @@
+# CMake build directory
+build/
+
+# CMake の自動生成ファイル
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# macOS ごみファイル
+.DS_Store
+
+.vscode/
+__pycache__/
+*.pyc

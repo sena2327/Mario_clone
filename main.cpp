@@ -67,6 +67,8 @@ class Stage{
             TILE_START = 'S',
             TILE_ENEMY = 6,
             TILE_PIPE = 'P',
+            TILE_LAVA = 'L',
+            TILE_OCEAN = 'O',
         };
         enum ITEM_IN_BOX{
             BOX_NONE = 0,
@@ -122,6 +124,8 @@ class Stage{
             TILE_TABLE['G'] = TILE_GOAL;
             TILE_TABLE['S'] = TILE_START;
             TILE_TABLE['P'] = TILE_PIPE;
+            TILE_TABLE['L'] = TILE_LAVA;
+            TILE_TABLE['O'] = TILE_OCEAN;
              //アイテムボックス入りのもの
             TILE_TABLE['c'] = TILE_ITEMBOX;
             BOX_TABLE['c'] = BOX_COIN;
@@ -145,10 +149,10 @@ class Stage{
             PIPE_TABLE['!'] = PIPE_WARP;
             TILE_TABLE['#'] = TILE_PIPE;
             PIPE_TABLE['#'] = PIPE_WARP;
-            TILE_TABLE['I'] = TILE_PIPE;
-            PIPE_TABLE['I'] = PIPE_WARP;
-            TILE_TABLE['O'] = TILE_PIPE;
-            PIPE_TABLE['O'] = PIPE_WARP;
+            TILE_TABLE['i'] = TILE_PIPE;
+            PIPE_TABLE['i'] = PIPE_WARP;
+            TILE_TABLE['o'] = TILE_PIPE;
+            PIPE_TABLE['o'] = PIPE_WARP;
             TILE_TABLE['F'] = TILE_PIPE;
             PIPE_TABLE['F'] = PIPE_FLOWER;
         }
@@ -235,6 +239,14 @@ class Stage{
                         SDL_SetRenderDrawColor(renderer,180,255,100,255); 
                         SDL_RenderFillRect(renderer, &r);  
                     }
+                    else if(t == TILE_LAVA){
+                        SDL_SetRenderDrawColor(renderer,255,80,0,255); 
+                        SDL_RenderFillRect(renderer, &r);
+                    }
+                    else if(t == TILE_OCEAN){
+                        SDL_SetRenderDrawColor(renderer,0,120,255,255); 
+                        SDL_RenderFillRect(renderer, &r);
+                    }
                 }
             }
         };
@@ -269,6 +281,7 @@ class GameObject{
     public:
         SDL_Rect dstRect;
         SDL_Texture* texture = nullptr;
+        virtual ~GameObject() = default;
         float vx,vy;
         bool is_alive;
         bool is_underground;
@@ -322,14 +335,15 @@ class Goal{
 class Mario : public GameObject{
     public:
         Mario(){
-            vx = 4.0f;
+            vx = 3.0f;
             vy = 0.0f;
             dstRect.w = 32;
             dstRect.h = 32;
-        }
-        //jump
+        }        
+        //action
         bool is_jumping = false;
         float jump_power = -15;
+        bool is_running = false;
         //コイン枚数
         int coin_count = 0;
         //状態
@@ -344,6 +358,7 @@ class Mario : public GameObject{
         MarioState prev_state = Default;
         Uint32 invincible = 0;
         bool can_warp = true;
+        bool face_right = true;
         //テクスチャ
         SDL_Texture* default_texture;
         SDL_Texture* fire_texture;
@@ -403,7 +418,8 @@ class Mario : public GameObject{
             SDL_Rect Screen = dstRect;
             Screen.x = dstRect.x - cameraX;
             Screen.y = dstRect.y - cameraY;
-            SDL_RenderCopy(renderer,texture,NULL,&Screen);
+            SDL_RendererFlip flip = face_right ? SDL_FLIP_NONE : SDL_FLIP_HORIZONTAL;
+            SDL_RenderCopyEx(renderer,texture,NULL,&Screen,0,NULL,flip);
         };
         void power_up(Stage* stage,MarioState s){
             if(s == Super && !(state == Fire)){
@@ -507,8 +523,30 @@ class Mario : public GameObject{
             float Right_x = dstRect.x + dstRect.w;
             float Left_x = dstRect.x;
 
+            if(keys[SDL_SCANCODE_C] && fabs(vx) > 0){
+                is_running = true;
+            }else{
+                is_running = false;
+            }
+            //走っている時と歩いている時で速さを調節
+            if(is_running){
+                if(fabs(vx) < 6.0){
+                    vx += 0.6;
+                }else{
+                    vx = 6.0;
+                }
+            }
+            else{
+                if(fabs(vx) < 4.0){
+                    vx += 0.2;
+                }else{
+                    vx = 3.0;
+                }  
+            }
+
 
             if(keys[SDL_SCANCODE_A]){
+                face_right = false;
                 newleft = Left_x - vx;newright = Right_x - vx;
                 if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
                     TileCol = Left_x / stage->TILE_SIZE;
@@ -518,6 +556,7 @@ class Mario : public GameObject{
                 }
             }
             if(keys[SDL_SCANCODE_D]){
+                face_right = true;
                 newleft = Left_x + vx;newright = Right_x + vx;
                 if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
                     TileCol = Right_x / stage->TILE_SIZE;
@@ -536,7 +575,7 @@ class Fireball : public GameObject{
             dstRect.w = 8;
         }
         Uint32 duration = 0;
-        void init(int bx,int by,Mario* mario){
+        void init(Mario* mario){
             //マリオの方向で分ける
             if(mario->vx >= 0){
                 dstRect.x = mario->dstRect.x + mario->dstRect.w;dstRect.y = mario->dstRect.y;                
@@ -627,6 +666,7 @@ class Enemy : public GameObject{
             vx = -2;
             vy = 0;
         }
+        bool face_right = true;
         virtual void is_collision_mario(Mario* mario,Stage* stage){
             if (!is_alive) return;
         
@@ -649,7 +689,7 @@ class Enemy : public GameObject{
             }
         
         }
-        void is_collision_fireball(Fireball* fire,Stage* stage){
+        void is_collision_fireball(Fireball* fire){
             if (!is_alive || !fire->is_alive) return;
             if (SDL_HasIntersection(&fire->dstRect,&dstRect)){
                 is_alive = false;
@@ -684,7 +724,8 @@ class Enemy : public GameObject{
                 SDL_Rect Screen = dstRect;
                 Screen.x = dstRect.x - cameraX;
                 Screen.y = dstRect.y - cameraY;
-                SDL_RenderCopy(renderer,texture,NULL,&Screen);}
+                SDL_RendererFlip flip = face_right ? SDL_FLIP_NONE : SDL_FLIP_HORIZONTAL;
+                SDL_RenderCopyEx(renderer,texture,NULL,&Screen,0,NULL,flip);  }
         };
     protected:
         virtual void handle_horizonal(const Stage* stage){
@@ -697,6 +738,7 @@ class Enemy : public GameObject{
 
             newleft = Left_x + vx;newright = Right_x + vx;
             if(vx < 0){
+                face_right = false;
                 if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
                     vx = -vx;
                 }else{
@@ -704,6 +746,7 @@ class Enemy : public GameObject{
                 }
             }
             if(vx > 0){
+                face_right = true;
                 if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
                     vx = -vx;            
                 }else{
@@ -826,13 +869,14 @@ class GreemTurtle : public Enemy{
                 SDL_Rect Screen = dstRect;
                 Screen.x = dstRect.x - cameraX;
                 Screen.y = dstRect.y - cameraY;
+                SDL_RendererFlip flip = !face_right ? SDL_FLIP_NONE : SDL_FLIP_HORIZONTAL;
                 if(state == WALK){
                     texture = texture_turtle;
-                    SDL_RenderCopy(renderer,texture,NULL,&Screen);
+                    SDL_RenderCopyEx(renderer,texture,NULL,&Screen,0,NULL,flip);
                 }
                 else{
                     texture = texture_shell;
-                    SDL_RenderCopy(renderer,texture,NULL,&Screen);
+                    SDL_RenderCopyEx(renderer,texture,NULL,&Screen,0,NULL,flip);
                 }
             }
         };
@@ -1381,7 +1425,7 @@ void Mario::try_warp(Stage* stage) {
 void Mario::fire(std::vector<Fireball*> fires,SDL_Renderer* renderer){
      if(state == Fire || (state == Star && prev_state == Fire)){
         Fireball* f = new Fireball();
-        f->init(this->dstRect.x,this->dstRect.y,this);
+        f->init(this);
         f->load_texture(renderer);
         fire_balls.push_back(f);  
      }
@@ -1506,10 +1550,10 @@ int main(){
                     bool can_in = false;
                     bool can_out = false;
                     char anker;
-                    if(stage.raw_lines[row+1][col] == 'I'){
+                    if(stage.raw_lines[row+1][col] == 'i'){
                         can_in = true;
                     }
-                    if(stage.raw_lines[row+1][col+1] == 'O'){
+                    if(stage.raw_lines[row+1][col+1] == 'o'){
                         can_out = true;
                     }
                     anker = stage.raw_lines[row][col+1];
@@ -1581,7 +1625,7 @@ int main(){
             e->update(&stage);
             e->is_collision_mario(&mario,&stage);
             for(auto* f : fire_balls){
-                e->is_collision_fireball(f,&stage);
+                e->is_collision_fireball(f);
             }
         }
         for(auto* it : items){
