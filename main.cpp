@@ -85,7 +85,7 @@ class Stage{
         enum PIPETYPE{
             PIPE_WARP = 'W',
             PIPE_FLOWER = 'F',
-            PIPE_NORMAL = '0',
+            PIPE_NORMAL = 0,
         };
     private:
         TileType TILE_TABLE[256];
@@ -266,6 +266,10 @@ class Stage{
 
         void hit_blocks(int px, int py, std::vector<item*>& items,SDL_Renderer* redenderer);
 
+        void change_tiles(int row,int col,TileType type){
+            tiles[row][col] = type;
+        }
+
         TileType get_tiletype(int row,int col){
             return tiles[row][col];
         }
@@ -285,6 +289,8 @@ class GameObject{
         float vx,vy;
         bool is_alive;
         bool is_underground;
+        bool is_ocean;
+        float Gravity_status;
         virtual void init(int bx,int by){
             dstRect.x = bx;dstRect.y = by;
             is_alive = true;
@@ -296,7 +302,77 @@ class GameObject{
             Screen.y = dstRect.y - cameraY;
             SDL_RenderCopy(renderer,texture,NULL,&Screen);
         };
-};
+        virtual void cheak_is_ocean(Stage* stage){
+            int ts = stage->TILE_SIZE;
+
+            // チェックする4点（少し内側を取って誤判定防止）
+            int x1 = dstRect.x + 1;                 // 左
+            int x2 = dstRect.x + dstRect.w - 1;     // 右
+            int y1 = dstRect.y + 1;                 // 上
+            int y2 = dstRect.y + dstRect.h - 1;     // 下
+
+            int points[4][2] = {
+                {x1, y1}, // 左上
+                {x2, y1}, // 右上
+                {x1, y2}, // 左下
+                {x2, y2}  // 右下
+            };
+
+            for(int i = 0; i < 4; i++){
+                int px = points[i][0];
+                int py = points[i][1];
+                int col = px / ts;
+                int row = py / ts;
+
+                if(row < 0 || row >= stage->stageHeightInTiles()) continue;
+                if(col < 0 || col >= stage->stageWidthInTiles()) continue;
+
+                if(stage->get_tiletype(row, col) == Stage::TILE_OCEAN){
+                    is_ocean = true;
+                    return;
+                }
+            }
+            is_ocean = false;
+        }
+        void update_gravity_status(Stage* stage){
+            cheak_is_ocean(stage);
+            if(is_ocean){
+                Gravity_status = Gravity * 0.3;
+            }
+            else{
+                Gravity_status = Gravity;
+            }
+        }
+        bool check_LAVA(Stage* stage){
+            // マリオの足元付近の座標を取得
+            float foot_y  = dstRect.y + dstRect.h - 1;   // 足の少し上
+            float left_x  = dstRect.x + 1;               // 左端から少し内側
+            float right_x = dstRect.x + dstRect.w - 1;   // 右端から少し内側
+
+            // タイル座標に変換
+            int row    = static_cast<int>(foot_y)  / stage->TILE_SIZE;
+            int col_L  = static_cast<int>(left_x)  / stage->TILE_SIZE;
+            int col_R  = static_cast<int>(right_x) / stage->TILE_SIZE;
+
+            // ステージ範囲外なら溶岩ではないとみなす
+            if (row < 0 || row >= stage->stageHeightInTiles()){
+                return false;
+            }
+            if (col_L < 0 || col_L >= stage->stageWidthInTiles()){
+                return false;
+            }
+            if (col_R < 0 || col_R >= stage->stageWidthInTiles()){
+                return false; 
+            }
+
+            // 左足・右足下のタイルを取得
+            Stage::TileType tL = stage->get_tiletype(row, col_L);
+            Stage::TileType tR = stage->get_tiletype(row, col_R);
+
+            // どちらかが溶岩なら true
+            return(tL == Stage::TILE_LAVA || tR == Stage::TILE_LAVA);
+        }
+    };
 
 class Goal{
     public:
@@ -389,7 +465,11 @@ class Mario : public GameObject{
         };
         //ジャンプ判定をする
         void jump(const Stage* stage){
-            if(!is_jumping && (stage->is_solid_at_pixel(dstRect.x,dstRect.y + dstRect.h + 1) || stage->is_solid_at_pixel(dstRect.x + dstRect.w,dstRect.y + dstRect.h + 1))){
+            if(is_ocean){
+                is_jumping = true;
+                vy = jump_power / 3;
+            }
+            else if(!is_jumping && (stage->is_solid_at_pixel(dstRect.x,dstRect.y + dstRect.h + 1) || stage->is_solid_at_pixel(dstRect.x + dstRect.w,dstRect.y + dstRect.h + 1))){
                 is_jumping = true;
                 vy = jump_power;
             }
@@ -397,6 +477,7 @@ class Mario : public GameObject{
         //マリオの行動を更新
         void update(Stage* stage,SDL_Renderer* renderer,std::vector<item*>& items,const Uint8* keys){
             if(check_LAVA(stage))is_alive = false;
+            update_gravity_status(stage);
             handle_vertical(stage,renderer,items,keys);
             handle_horizonal(keys,stage);
         }
@@ -465,35 +546,6 @@ class Mario : public GameObject{
                 }
             }
         }
-        bool check_LAVA(Stage* stage){
-            // マリオの足元付近の座標を取得
-            float foot_y  = dstRect.y + dstRect.h - 1;   // 足の少し上
-            float left_x  = dstRect.x + 1;               // 左端から少し内側
-            float right_x = dstRect.x + dstRect.w - 1;   // 右端から少し内側
-
-            // タイル座標に変換
-            int row    = static_cast<int>(foot_y)  / stage->TILE_SIZE;
-            int col_L  = static_cast<int>(left_x)  / stage->TILE_SIZE;
-            int col_R  = static_cast<int>(right_x) / stage->TILE_SIZE;
-
-            // ステージ範囲外なら溶岩ではないとみなす
-            if (row < 0 || row >= stage->stageHeightInTiles()){
-                return false;
-            }
-            if (col_L < 0 || col_L >= stage->stageWidthInTiles()){
-                return false;
-            }
-            if (col_R < 0 || col_R >= stage->stageWidthInTiles()){
-                return false; 
-            }
-
-            // 左足・右足下のタイルを取得
-            Stage::TileType tL = stage->get_tiletype(row, col_L);
-            Stage::TileType tR = stage->get_tiletype(row, col_R);
-
-            // どちらかが溶岩なら true
-            return(tL == Stage::TILE_LAVA || tR == Stage::TILE_LAVA);
-        }
         void try_warp(Stage* stage);
         void fire(std::vector<Fireball*> fires,SDL_Renderer* renderer);
     private:
@@ -504,10 +556,13 @@ class Mario : public GameObject{
             if(vy >= max_fall_speed){
                 vy = max_fall_speed;
             }
-            else if(keys[SDL_SCANCODE_M] && vy > 0){
-                vy += Gravity + 0.5f;
+            else if(is_ocean && fabs(vy) > 5){
+                vy = vy / fabs(vy) * 5;
+            }
+            else if(keys[SDL_SCANCODE_M] && vy > 0 && !is_ocean){
+                vy += Gravity_status + 0.5f;
             }else{
-                vy += Gravity;
+                vy += Gravity_status;
             } 
             float newY = dstRect.y + vy;
             
@@ -642,7 +697,7 @@ class Fireball : public GameObject{
         }        
     private:
         void handle_vertical(const Stage* stage){
-        vy += Gravity;        
+        vy += Gravity_status;        
         float newY = dstRect.y + vy;
         
         float foot_y = dstRect.y + dstRect.h;
@@ -711,7 +766,12 @@ class Enemy : public GameObject{
                 }
                 if(m_foot <= e_head + margin){
                     is_alive = false;
-                    mario->vy = -10;
+                    if(mario->is_ocean){
+                        mario->vy = -2;
+                    }
+                    else{
+                        mario->vy = -10;
+                    }
                 }
                 else{
                     mario->power_down(stage);
@@ -726,7 +786,12 @@ class Enemy : public GameObject{
             }
         }
 
-        void update(const Stage* stage){
+        void update(Stage* stage){
+            if(check_LAVA(stage)){
+                is_alive = false;
+                return;
+            };
+            update_gravity_status(stage);
             handle_horizonal(stage);
             handle_vertical(stage);
         }
@@ -785,7 +850,7 @@ class Enemy : public GameObject{
             }
         }
         virtual void handle_vertical(const Stage* stage){
-            vy += Gravity;        
+            vy += Gravity_status;        
             float newY = dstRect.y + vy;
             
             float foot_y = dstRect.y + dstRect.h;
@@ -854,7 +919,12 @@ class GreemTurtle : public Enemy{
                         state = STAMPED;
                         vx = 0;
                     }
-                    mario->vy = -10;
+                    if(mario->is_ocean){
+                        mario->vy = -2;
+                    }
+                    else{
+                        mario->vy = -10;
+                    }
                 }
                 else{
                     if(state == STAMPED){
@@ -1098,7 +1168,7 @@ class item : public GameObject{
         };
     protected:
         virtual void handle_vertical(const Stage* stage){
-            vy += Gravity;        
+            vy += Gravity_status;        
             float newY = dstRect.y + vy;
             
             float foot_y = dstRect.y + dstRect.h;
@@ -1221,7 +1291,7 @@ class Star : public item{
             return true;
         };
         void handle_vertical(const Stage* stage)override{
-            vy += Gravity;        
+            vy += Gravity_status;        
             float newY = dstRect.y + vy;
             
             float foot_y = dstRect.y + dstRect.h;
@@ -1269,7 +1339,7 @@ class FireFlower : public item{
             return true;
         };
         void handle_vertical(const Stage* stage)override{
-            vy += Gravity;        
+            vy += Gravity_status;        
             float newY = dstRect.y + vy;
             
             float foot_y = dstRect.y + dstRect.h;
@@ -1540,7 +1610,19 @@ int main(){
                         e->is_underground = true;
                     }
                     enemies.push_back(e);   
-                }   
+                } 
+                int ocean_count = 0;
+                int H = stage.stageHeightInTiles();
+                int W = stage.stageWidthInTiles();
+                
+                if (row > 0 && stage.get_tiletype(row-1, col) == Stage::TILE_OCEAN) ocean_count++;
+                if (row+1 < H && stage.get_tiletype(row+1, col) == Stage::TILE_OCEAN) ocean_count++;
+                if (col > 0 && stage.get_tiletype(row, col-1) == Stage::TILE_OCEAN) ocean_count++;
+                if (col+1 < W && stage.get_tiletype(row, col+1) == Stage::TILE_OCEAN) ocean_count++;
+                
+                if (ocean_count >= 2) {
+                    stage.change_tiles(row, col, Stage::TILE_OCEAN);
+                }
             }
             else if(stage.get_tiletype(row,col) == Stage::TILE_GOAL){
                 int worldX = col * stage.TILE_SIZE;
