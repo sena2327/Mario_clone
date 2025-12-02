@@ -42,6 +42,7 @@ namespace Assets{
     constexpr const char* ENEMY_GREENTURTLE  = "img/greenturtle.png";
     constexpr const char* ENEMY_GREENTURTLE_SHELL = "img/greenturtle_shell.jpeg"; // 甲羅用（必要に応じて使用）
     constexpr const char* ENEMY_FLOWER = "img/flower.jpeg"; 
+    constexpr const char* ENEMY_FISH = "img/fish.jpeg"; 
 }
 
 //前方宣言
@@ -81,10 +82,11 @@ class Stage{
             NO_ENEMY = 0,
             ENEMY_MASHROOM = 'M',
             ENEMY_GREENTURTLE = 'T',
+            ENEMY_FISH = 'F',
         };
         enum PIPETYPE{
             PIPE_WARP = 'W',
-            PIPE_FLOWER = 'F',
+            PIPE_FLOWER = 'H',
             PIPE_NORMAL = 0,
         };
     private:
@@ -142,6 +144,8 @@ class Stage{
             ENEMY_TABLE['M'] = ENEMY_MASHROOM;
             TILE_TABLE['T'] = TILE_ENEMY;
             ENEMY_TABLE['T']  = ENEMY_GREENTURTLE;
+            TILE_TABLE['F'] = TILE_ENEMY;
+            ENEMY_TABLE['F']  = ENEMY_FISH;
             //土管
             TILE_TABLE['W'] = TILE_PIPE;
             PIPE_TABLE['W'] = PIPE_WARP;
@@ -153,8 +157,8 @@ class Stage{
             PIPE_TABLE['i'] = PIPE_WARP;
             TILE_TABLE['o'] = TILE_PIPE;
             PIPE_TABLE['o'] = PIPE_WARP;
-            TILE_TABLE['F'] = TILE_PIPE;
-            PIPE_TABLE['F'] = PIPE_FLOWER;
+            TILE_TABLE['H'] = TILE_PIPE;
+            PIPE_TABLE['H'] = PIPE_FLOWER;
         }
 
         void load_stage(const char* filename){
@@ -608,7 +612,7 @@ class Mario : public GameObject{
             float Right_x = dstRect.x + dstRect.w;
             float Left_x = dstRect.x;
 
-            if(keys[SDL_SCANCODE_C] && fabs(vx) > 0){
+            if(keys[SDL_SCANCODE_C] && fabs(vx) > 0 && !is_ocean){
                 is_running = true;
             }else{
                 is_running = false;
@@ -658,6 +662,7 @@ class Fireball : public GameObject{
         Fireball(){
             dstRect.h = 8;
             dstRect.w = 8;
+            Gravity_status = Gravity;
         }
         Uint32 duration = 0;
         void init(Mario* mario){
@@ -689,9 +694,10 @@ class Fireball : public GameObject{
             return true;
         };
         void update(Stage* stage){
+            cheak_is_ocean(stage);
             handle_vertical(stage);
             handle_horizonal(stage);
-            if(SDL_GetTicks() >= duration){
+            if(SDL_GetTicks() >= duration || check_LAVA(stage)){
                 is_alive = false;
             }
         }        
@@ -712,6 +718,9 @@ class Fireball : public GameObject{
             int groundTop = tileRow * stage->TILE_SIZE;
             dstRect.y = groundTop - dstRect.h;
             vy = -5;
+            if(is_ocean){
+                is_alive = false;
+            }
         }
         else{
             dstRect.y = newY;
@@ -1117,6 +1126,52 @@ class Flower : public Enemy{
                 }
             }
         };
+};
+
+class Fish : public Enemy{
+    public:
+        Fish(){
+            vx = -2;
+        }
+        bool load_texture(SDL_Renderer* renderer)override{
+            IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG);
+            SDL_Surface* surface = IMG_Load(Assets::ENEMY_FISH);
+            if (!surface) {
+                SDL_Log("SDL_LoadBMP Error: %s", SDL_GetError());
+                return false;
+            }
+        
+            texture = SDL_CreateTextureFromSurface(renderer,surface);
+            SDL_FreeSurface(surface);
+            if (!texture) {
+                SDL_Log("SDL_CreateTextureFromSurface Error: %s", SDL_GetError());
+                return false;
+            }
+
+            return true;
+        };
+        void handle_vertical(const Stage* stage)override{
+            if(is_ocean)return;
+            vy += Gravity_status;        
+            float newY = dstRect.y + vy;
+            
+            float foot_y = dstRect.y + dstRect.h;
+            float Right_x = dstRect.x;
+            float Left_x = dstRect.x + dstRect.w;
+
+            bool foot_solidL = stage->is_solid_at_pixel(Left_x,foot_y);
+            bool foot_solidR = stage->is_solid_at_pixel(Right_x,foot_y);
+
+            if(vy > 0 &&  (foot_solidL || foot_solidR)){
+                int tileRow   = foot_y / stage->TILE_SIZE;
+                int groundTop = tileRow * stage->TILE_SIZE;
+                dstRect.y = groundTop - dstRect.h;
+                vy = -10;
+            }
+            else{
+                dstRect.y = newY;
+            }
+        }
 };
 //item
 class item : public GameObject{
@@ -1600,6 +1655,10 @@ int main(){
                 }
                 else if(kind == Stage::ENEMY_GREENTURTLE){
                     e = new GreemTurtle();
+                    e->load_texture(renderer);          
+                }
+                else if(kind == Stage::ENEMY_FISH){
+                    e = new Fish();
                     e->load_texture(renderer);          
                 }
                 if(e){
