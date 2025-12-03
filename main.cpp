@@ -27,6 +27,23 @@ const float Gravity = 0.5f;
 int cameraX = 0;
 int cameraY = 0;
 
+//確率
+bool p_30 = random_with_probability(0.30);
+bool p_10 = random_with_probability(0.10);
+bool p_5 = random_with_probability(0.05);
+bool p_1 = random_with_probability(0.01);
+int probability_frame_counter = 0;
+
+void refresh_probabilities_each_second(){
+    if(probability_frame_counter % FPS == 0){
+        p_30 = random_with_probability(0.30);
+        p_10 = random_with_probability(0.10);
+        p_5  = random_with_probability(0.05);
+        p_1  = random_with_probability(0.01);
+    }
+    probability_frame_counter++;
+}
+
 //各テクスチャーの管理（画像ファイルのパスを一箇所に集約）
 namespace Assets{
     // マリオ
@@ -156,6 +173,7 @@ class Stage{
             ENEMY_TABLE['T']  = ENEMY_GREENTURTLE;
             TILE_TABLE['F'] = TILE_ENEMY;
             ENEMY_TABLE['F']  = ENEMY_FISH;
+            TILE_TABLE['B'] = TILE_ENEMY;
             ENEMY_TABLE['B']  = ENEMY_BOWSER;
             //土管
             TILE_TABLE['W'] = TILE_PIPE;
@@ -1188,9 +1206,14 @@ class Fish : public Enemy{
 
 class Bowser : public Enemy{
     public:
+    bool is_spawn = false;
+    bool can_move = true;
+    float spawn_x = 0;
+    float spawn_y = 0;
     Bowser(){
         dstRect.h = 32*2;
         dstRect.w = 32*2;
+        vx = -2;
     }
     bool load_texture(SDL_Renderer* renderer)override{
         IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG);
@@ -1210,7 +1233,19 @@ class Bowser : public Enemy{
         return true;
     };
     void handle_horizonal(const Stage* stage)override{
-        /*
+        //スポーン位置を記録
+        if(!is_spawn){
+            spawn_x = dstRect.x;
+            spawn_y = dstRect.y;
+            is_spawn = true;
+        }
+        if(p_30){
+            can_move = !can_move;
+            p_30 = false;
+        }
+        if(!can_move){
+            return;
+        }
         float newleft,newright;
 
         float head_y = dstRect.y + 1;
@@ -1219,23 +1254,34 @@ class Bowser : public Enemy{
         float Left_x = dstRect.x;
 
         newleft = Left_x + vx;newright = Right_x + vx;
+
+        //スポーン位置から+-5タイル分だけに行動範囲を制限
+        float limit_left = spawn_x - stage->TILE_SIZE*5;
+        float limit_right = spawn_x + stage->TILE_SIZE*5;
         if(vx < 0){
             face_right = false;
-            if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
+            if(limit_left > newleft){
                 vx = -vx;
-            }else{
+            }
+            else if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
+                vx = -vx;
+            }
+            else{
                 dstRect.x = newleft;
             }
         }
         if(vx > 0){
             face_right = true;
-            if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
+            if(limit_right < newright){
                 vx = -vx;            
-            }else{
+            }
+            else if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
+                vx = -vx;
+            }
+            else{
                 dstRect.x = newleft;
             }
         }
-        */    
     }
     void handle_vertical(const Stage* stage)override{
         vy += Gravity_status;        
@@ -1257,9 +1303,10 @@ class Bowser : public Enemy{
         else{
             dstRect.y = newY;
         }
-        //定期的に大ジャンプ
-        if(random_with_probability(0.01) && (foot_solidL || foot_solidR) && vy == 0){
+        //10秒に一回ランダムに大ジャンプ
+        if(p_10 && (foot_solidL || foot_solidR) && vy == 0){
             vy = -15;
+            p_10 = false;
         }
     }
 };
@@ -1860,6 +1907,7 @@ int main(){
 
     while(running){
         frameStart = SDL_GetTicks();
+        refresh_probabilities_each_second();
 
         while(SDL_PollEvent(&e)){
             if(e.type == SDL_QUIT){
