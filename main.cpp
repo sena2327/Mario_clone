@@ -4,9 +4,17 @@
 #include <string>
 #include <fstream>
 #include <unordered_map>
+#include <random>
 
 #define SCREEN_WIDTH 1024
 #define SCREEN_HEIGHT 512
+
+std::mt19937 rng(std::random_device{}());  // 乱数エンジン（使い回す）
+
+bool random_with_probability(double p) {
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+    return dist(rng) < p;
+}
 
 //frame
 const int FPS = 60;
@@ -43,6 +51,7 @@ namespace Assets{
     constexpr const char* ENEMY_GREENTURTLE_SHELL = "img/greenturtle_shell.jpeg"; // 甲羅用（必要に応じて使用）
     constexpr const char* ENEMY_FLOWER = "img/flower.jpeg"; 
     constexpr const char* ENEMY_FISH = "img/fish.jpeg"; 
+    constexpr const char* ENEMY_BOWSER = "img/bowser.png"; 
 }
 
 //前方宣言
@@ -83,6 +92,7 @@ class Stage{
             ENEMY_MASHROOM = 'M',
             ENEMY_GREENTURTLE = 'T',
             ENEMY_FISH = 'F',
+            ENEMY_BOWSER = 'B',
         };
         enum PIPETYPE{
             PIPE_WARP = 'W',
@@ -146,6 +156,7 @@ class Stage{
             ENEMY_TABLE['T']  = ENEMY_GREENTURTLE;
             TILE_TABLE['F'] = TILE_ENEMY;
             ENEMY_TABLE['F']  = ENEMY_FISH;
+            ENEMY_TABLE['B']  = ENEMY_BOWSER;
             //土管
             TILE_TABLE['W'] = TILE_PIPE;
             PIPE_TABLE['W'] = PIPE_WARP;
@@ -461,7 +472,7 @@ class Mario : public GameObject{
             SDL_FreeSurface(default_surface);
             SDL_FreeSurface(fire_surface);
             SDL_FreeSurface(star_surface);
-            if (!default_texture || !fire_surface || !star_surface) {
+            if (!default_texture || !fire_texture || !star_texture) {
                 SDL_Log("SDL_CreateTextureFromSurface Error: %s", SDL_GetError());
                 return false;
             }
@@ -668,13 +679,14 @@ class Fireball : public GameObject{
         void init(Mario* mario){
             //マリオの方向で分ける
             if(mario->vx >= 0){
-                dstRect.x = mario->dstRect.x + mario->dstRect.w;dstRect.y = mario->dstRect.y;                
-            }else{
                 dstRect.x = mario->dstRect.x + mario->dstRect.w;dstRect.y = mario->dstRect.y;
+                vx = 4;                
+            }else{
+                dstRect.x = mario->dstRect.x;dstRect.y = mario->dstRect.y;
+                vx = -4;
             }
             is_alive = true;
             duration = SDL_GetTicks() + 5000;
-            vx = 4;
             vy = 0;
         }
         bool load_texture(SDL_Renderer* renderer){
@@ -1173,6 +1185,84 @@ class Fish : public Enemy{
             }
         }
 };
+
+class Bowser : public Enemy{
+    public:
+    Bowser(){
+        dstRect.h = 32*2;
+        dstRect.w = 32*2;
+    }
+    bool load_texture(SDL_Renderer* renderer)override{
+        IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG);
+        SDL_Surface* surface = IMG_Load(Assets::ENEMY_BOWSER);
+        if (!surface) {
+            SDL_Log("SDL_LoadBMP Error: %s", SDL_GetError());
+            return false;
+        }
+    
+        texture = SDL_CreateTextureFromSurface(renderer,surface);
+        SDL_FreeSurface(surface);
+        if (!texture) {
+            SDL_Log("SDL_CreateTextureFromSurface Error: %s", SDL_GetError());
+            return false;
+        }
+
+        return true;
+    };
+    void handle_horizonal(const Stage* stage)override{
+        /*
+        float newleft,newright;
+
+        float head_y = dstRect.y + 1;
+        float foot_y = dstRect.y + dstRect.h - 1;
+        float Right_x = dstRect.x + dstRect.w;
+        float Left_x = dstRect.x;
+
+        newleft = Left_x + vx;newright = Right_x + vx;
+        if(vx < 0){
+            face_right = false;
+            if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
+                vx = -vx;
+            }else{
+                dstRect.x = newleft;
+            }
+        }
+        if(vx > 0){
+            face_right = true;
+            if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
+                vx = -vx;            
+            }else{
+                dstRect.x = newleft;
+            }
+        }
+        */    
+    }
+    void handle_vertical(const Stage* stage)override{
+        vy += Gravity_status;        
+        float newY = dstRect.y + vy;
+        
+        float foot_y = dstRect.y + dstRect.h;
+        float Right_x = dstRect.x;
+        float Left_x = dstRect.x + dstRect.w;
+
+        bool foot_solidL = stage->is_solid_at_pixel(Left_x,foot_y);
+        bool foot_solidR = stage->is_solid_at_pixel(Right_x,foot_y);
+        //着地判定
+        if(vy > 0 &&  (foot_solidL || foot_solidR)){
+            int tileRow   = foot_y / stage->TILE_SIZE;
+            int groundTop = tileRow * stage->TILE_SIZE;
+            dstRect.y = groundTop - dstRect.h;
+            vy = 0;
+        }
+        else{
+            dstRect.y = newY;
+        }
+        //定期的に大ジャンプ
+        if(random_with_probability(0.01) && (foot_solidL || foot_solidR) && vy == 0){
+            vy = -15;
+        }
+    }
+};
 //item
 class item : public GameObject{
     public:
@@ -1659,6 +1749,10 @@ int main(){
                 }
                 else if(kind == Stage::ENEMY_FISH){
                     e = new Fish();
+                    e->load_texture(renderer);          
+                }
+                else if(kind == Stage::ENEMY_BOWSER){
+                    e = new Bowser();
                     e->load_texture(renderer);          
                 }
                 if(e){
