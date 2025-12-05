@@ -29,6 +29,7 @@ int cameraY = 0;
 
 //確率
 bool p_30 = random_with_probability(0.30);
+bool p_25 = random_with_probability(0.25);
 bool p_10 = random_with_probability(0.10);
 bool p_5 = random_with_probability(0.05);
 bool p_1 = random_with_probability(0.01);
@@ -37,6 +38,7 @@ int probability_frame_counter = 0;
 void refresh_probabilities_each_second(){
     if(probability_frame_counter % FPS == 0){
         p_30 = random_with_probability(0.30);
+        p_25 = random_with_probability(0.25);
         p_10 = random_with_probability(0.10);
         p_5  = random_with_probability(0.05);
         p_1  = random_with_probability(0.01);
@@ -51,7 +53,7 @@ namespace Assets{
     constexpr const char* FIREMARIO          = "img/FireMario.jpeg";
     constexpr const char* STARMARIO          = "img/starmario.jpeg";
     //マリオの能力
-    constexpr const char* FIRE              = "img/fire.jpeg";
+    constexpr const char* FIREBALL              = "img/fireball.jpeg";
     // ステージ
     constexpr const char* GOAL               = "img/goal.jpeg";
     constexpr const char* PIPE               = "img/pipe.png";
@@ -69,6 +71,8 @@ namespace Assets{
     constexpr const char* ENEMY_FLOWER = "img/flower.jpeg"; 
     constexpr const char* ENEMY_FISH = "img/fish.jpeg"; 
     constexpr const char* ENEMY_BOWSER = "img/bowser.png"; 
+    //敵の弾
+    constexpr const char* FIRE = "img/fire.png"; 
 }
 
 //前方宣言
@@ -78,9 +82,11 @@ class SuperMashroom;
 class Goal;
 class Warp_Pipe;
 class Fireball;
+class Fire;
 
 extern std::vector<Warp_Pipe*> warp_pipes;
 extern std::vector<Fireball*> fire_balls;
+extern std::vector<Fire*> fires;
 
 class Stage{
     public:
@@ -580,7 +586,7 @@ class Mario : public GameObject{
             }
         }
         void try_warp(Stage* stage);
-        void fire(std::vector<Fireball*> fires,SDL_Renderer* renderer);
+        void fire(SDL_Renderer* renderer);
     private:
         Warp_Pipe* warp_point();
         //縦方向
@@ -709,7 +715,7 @@ class Fireball : public GameObject{
         }
         bool load_texture(SDL_Renderer* renderer){
             IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG);
-            SDL_Surface* surface = IMG_Load(Assets::FIRE);
+            SDL_Surface* surface = IMG_Load(Assets::FIREBALL);
             if (!surface) {
                 SDL_Log("SDL_LoadBMP Error: %s", SDL_GetError());
                 return false;
@@ -825,7 +831,7 @@ class Enemy : public GameObject{
             }
         }
 
-        void update(Stage* stage){
+        virtual void update(Stage* stage,SDL_Renderer* renderer){
             if(check_LAVA(stage)){
                 is_alive = false;
                 return;
@@ -1232,6 +1238,16 @@ class Bowser : public Enemy{
 
         return true;
     };
+    void update(Stage* stage,SDL_Renderer* renderer)override{
+        if(check_LAVA(stage)){
+            is_alive = false;
+            return;
+        };
+        fire(renderer);
+        handle_horizonal(stage);
+        handle_vertical(stage);
+    }
+    void fire(SDL_Renderer* renderer);
     void handle_horizonal(const Stage* stage)override{
         //スポーン位置を記録
         if(!is_spawn){
@@ -1307,6 +1323,78 @@ class Bowser : public Enemy{
         if(p_10 && (foot_solidL || foot_solidR) && vy == 0){
             vy = -15;
             p_10 = false;
+        }
+    }
+};
+
+class Fire : public GameObject{
+    public:
+        Fire(){
+            dstRect.h = 8;
+            dstRect.w = 32;
+        }
+        Uint32 duration = 0;
+        void init(Bowser* bowser){
+            //Bowserの方向で分ける
+            if(bowser->vx >= 0){
+                dstRect.x =bowser->dstRect.x + bowser->dstRect.w;dstRect.y = bowser->dstRect.y;
+                vx = 4;                
+            }else{
+                dstRect.x = bowser->dstRect.x;dstRect.y = bowser->dstRect.y;
+                vx = -4;
+            }
+            is_alive = true;
+            duration = SDL_GetTicks() + 5000;
+            vy = 0;
+        }
+        bool load_texture(SDL_Renderer* renderer){
+            IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG);
+            SDL_Surface* surface = IMG_Load(Assets::FIRE);
+            if (!surface) {
+                SDL_Log("SDL_LoadBMP Error: %s", SDL_GetError());
+                return false;
+            }
+        
+            texture = SDL_CreateTextureFromSurface(renderer,surface);
+            SDL_FreeSurface(surface);
+            if (!texture) {
+                SDL_Log("SDL_CreateTextureFromSurface Error: %s", SDL_GetError());
+                return false;
+            }
+            return true;
+        };
+        void update(Stage* stage){
+            cheak_is_ocean(stage);
+            handle_vertical(stage);
+            handle_horizonal(stage);
+            if(SDL_GetTicks() >= duration || check_LAVA(stage)){
+                is_alive = false;
+            }
+        }        
+    private:
+        void handle_vertical(const Stage* stage){}
+        void handle_horizonal(const Stage* stage){
+        float newleft,newright;
+
+        float head_y = dstRect.y + 1;
+        float foot_y = dstRect.y + dstRect.h - 1;
+        float Right_x = dstRect.x + dstRect.w;
+        float Left_x = dstRect.x;
+
+        newleft = Left_x + vx;newright = Right_x + vx;
+        if(vx < 0){
+            if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
+                is_alive = false;
+            }else{
+                dstRect.x = newleft;
+            }
+        }
+        if(vx > 0){
+            if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
+                is_alive = false;            
+            }else{
+                dstRect.x = newleft;
+            }
         }
     }
 };
@@ -1714,7 +1802,7 @@ void Mario::try_warp(Stage* stage) {
     }
 }
 
-void Mario::fire(std::vector<Fireball*> fires,SDL_Renderer* renderer){
+void Mario::fire(SDL_Renderer* renderer){
      if(state == Fire || (state == Star && prev_state == Fire)){
         Fireball* f = new Fireball();
         f->init(this);
@@ -1727,6 +1815,16 @@ void Mario::fire(std::vector<Fireball*> fires,SDL_Renderer* renderer){
 
 }
 
+void Bowser::fire(SDL_Renderer* renderer){
+    if(p_25){ 
+        Fire* f = new Fire();
+        f->init(this);
+        f->load_texture(renderer);
+        fires.push_back(f);  
+        p_25 = false;
+    }
+}
+
 Mario mario;
 Goal goal;
 std::vector<item*> items;
@@ -1734,6 +1832,7 @@ std::vector<Enemy*> enemies;
 std::vector<Pipe*> pipes;
 std::vector<Warp_Pipe*> warp_pipes;
 std::vector<Fireball*> fire_balls;
+std::vector<Fire*> fires;
 
 int main(){
     if (SDL_Init(SDL_INIT_VIDEO)  != 0){
@@ -1926,7 +2025,7 @@ int main(){
             }
             if(e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_n){
                 if (e.key.repeat == 0) {
-                    mario.fire(fire_balls,renderer);
+                    mario.fire(renderer);
                 }
             }
         }
@@ -1935,7 +2034,7 @@ int main(){
         const Uint8* keys = SDL_GetKeyboardState(NULL);
         mario.update(&stage,renderer,items,keys);
         for(auto* e : enemies){
-            e->update(&stage);
+            e->update(&stage,renderer);
             e->is_collision_mario(&mario,&stage);
             for(auto* f : fire_balls){
                 e->is_collision_fireball(f);
@@ -1952,6 +2051,17 @@ int main(){
             if (!f->is_alive) {
                 delete f;
                 it = fire_balls.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto it = fires.begin(); it != fires.end();) {
+            Fire* f = *it;
+            f->update(&stage);
+        
+            if (!f->is_alive) {
+                delete f;
+                it = fires.erase(it);
             } else {
                 ++it;
             }
@@ -1982,6 +2092,9 @@ int main(){
             p->render(renderer,cameraX,cameraY);
         }
         for (auto* f : fire_balls){
+            f->render(renderer,cameraX,cameraY);
+        }
+        for (auto* f : fires){
             f->render(renderer,cameraX,cameraY);
         }
         SDL_RenderPresent(renderer);
