@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+- このリポジトリに関するエージェントからの回答は日本語で行ってください。
+
 ## Project Structure & Module Organization
 - `main.cpp`: Core game loop, stage parsing, rendering, and input handling. Keep gameplay logic colocated and prefer small helper functions over new files unless a subsystem grows large.
 - `img/`: Sprite and texture assets referenced via `Assets::` constants; replace files without renaming to avoid code changes.

@@ -329,7 +329,7 @@ class GameObject{
         bool is_alive;
         bool is_underground;
         bool is_ocean;
-        float Gravity_status;
+        float Gravity_status = Gravity;
         virtual void init(int bx,int by){
             dstRect.x = bx;dstRect.y = by;
             is_alive = true;
@@ -459,6 +459,7 @@ class Mario : public GameObject{
         bool is_jumping = false;
         float jump_power = -15;
         bool is_running = false;
+        Uint32 wall_kick_lock_until = 0;
         //コイン枚数
         int coin_count = 0;
         //状態
@@ -585,8 +586,34 @@ class Mario : public GameObject{
                 }
             }
         }
+        void wall_kick(Stage* stage,const Uint8* keys){
+            float Right_x = dstRect.x + dstRect.w + 1;
+            float Left_x = dstRect.x - 1;
+            float mario_y = dstRect.y + dstRect.h / 2;
+            float foot_y = dstRect.y + dstRect.h;
+            //地面判定
+            bool foot_solid = stage->is_solid_at_pixel((Right_x + Left_x)/2,foot_y);
+            if(foot_solid)return;
+            //左右が壁ならtrue
+            bool is_touch_right = stage->is_solid_at_pixel(Right_x,mario_y);
+            bool is_touch_left = stage->is_solid_at_pixel(Left_x,mario_y);
+            if (!(is_touch_left || is_touch_right)) return;
+            if(is_touch_left){
+                vy -= 15;
+                vx = 10;
+                face_right = true;
+                wall_kick_lock_until = SDL_GetTicks() + 180;
+            }
+            if(is_touch_right){
+                vy -= 15;
+                vx = -10;
+                face_right = false;
+                wall_kick_lock_until = SDL_GetTicks() + 180;
+            }        
+        }
         void try_warp(Stage* stage);
         void fire(SDL_Renderer* renderer);
+
     private:
         Warp_Pipe* warp_point();
         //縦方向
@@ -647,13 +674,37 @@ class Mario : public GameObject{
             float Right_x = dstRect.x + dstRect.w;
             float Left_x = dstRect.x;
 
+            // 壁キック直後は入力に関わらず、キック方向の速度を維持して移動する
+            if(SDL_GetTicks() < wall_kick_lock_until && vx != 0){
+                if(vx < 0){
+                    face_right = false;
+                    newleft = Left_x + vx;newright = Right_x + vx;
+                    if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
+                        TileCol = newleft / stage->TILE_SIZE;
+                        dstRect.x = (TileCol + 1) * stage->TILE_SIZE;                 
+                    }else{
+                        dstRect.x = newleft;
+                    }
+                }else{
+                    face_right = true;
+                    newleft = Left_x + vx;newright = Right_x + vx;
+                    if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
+                        TileCol = Right_x / stage->TILE_SIZE;
+                        dstRect.x = TileCol * stage->TILE_SIZE - 1;                 
+                    }else{
+                        dstRect.x = newleft;
+                    }
+                }
+                return;
+            }
+
             if(keys[SDL_SCANCODE_C] && fabs(vx) > 0 && !is_ocean){
                 is_running = true;
             }else{
                 is_running = false;
             }
             //走っている時と歩いている時で速さを調節
-            if(is_running){
+            if(is_running ){
                 if(fabs(vx) < 6.0){
                     vx += 0.6;
                 }else{
@@ -668,20 +719,29 @@ class Mario : public GameObject{
                 }  
             }
 
-
             if(keys[SDL_SCANCODE_A]){
                 face_right = false;
-                newleft = Left_x - vx;newright = Right_x - vx;
+                if(SDL_GetTicks() < wall_kick_lock_until){
+                    newleft = Left_x + vx;newright = Right_x + vx;   
+                }
+                else{
+                    newleft = Left_x - vx;newright = Right_x - vx;   
+                }
                 if(stage->is_solid_at_pixel(newleft,head_y) || stage->is_solid_at_pixel(newleft,foot_y)){
-                    TileCol = Left_x / stage->TILE_SIZE;
-                    dstRect.x = TileCol * stage->TILE_SIZE + 1;                 
+                    TileCol = newleft / stage->TILE_SIZE;
+                    dstRect.x = (TileCol + 1) * stage->TILE_SIZE;                 
                 }else{
                     dstRect.x = newleft;
                 }
             }
             if(keys[SDL_SCANCODE_D]){
                 face_right = true;
-                newleft = Left_x + vx;newright = Right_x + vx;
+                if(SDL_GetTicks() < wall_kick_lock_until){
+                    newleft = Left_x + vx;newright = Right_x + vx;   
+                }
+                else{
+                    newleft = Left_x + vx;newright = Right_x + vx;
+                }
                 if(stage->is_solid_at_pixel(newright,head_y) || stage->is_solid_at_pixel(newright,foot_y)){
                     TileCol = Right_x / stage->TILE_SIZE;
                     dstRect.x = TileCol * stage->TILE_SIZE - 1;                 
@@ -1243,6 +1303,8 @@ class Bowser : public Enemy{
             is_alive = false;
             return;
         };
+        // Bowserも毎フレーム重力値を更新してジャンプが減衰するようにする
+        update_gravity_status(stage);
         fire(renderer);
         handle_horizonal(stage);
         handle_vertical(stage);
@@ -1330,7 +1392,7 @@ class Bowser : public Enemy{
 class Fire : public GameObject{
     public:
         Fire(){
-            dstRect.h = 8;
+            dstRect.h = 32;
             dstRect.w = 32;
         }
         Uint32 duration = 0;
@@ -1371,7 +1433,20 @@ class Fire : public GameObject{
                 is_alive = false;
             }
         }        
-    private:
+        void is_collision_mario(Mario* mario,Stage* stage){
+            if (!is_alive) return;
+            if(SDL_HasIntersection(&mario->dstRect,&dstRect)){
+                if(mario->state == Mario::Star){
+                    is_alive = false;
+                    return;
+                }
+                else{
+                    mario->power_down(stage);
+                }
+            }
+        
+        }
+        private:
         void handle_vertical(const Stage* stage){}
         void handle_horizonal(const Stage* stage){
         float newleft,newright;
@@ -2007,6 +2082,8 @@ int main(){
     while(running){
         frameStart = SDL_GetTicks();
         refresh_probabilities_each_second();
+        //キーの状態を取得
+        const Uint8* keys = SDL_GetKeyboardState(NULL);
 
         while(SDL_PollEvent(&e)){
             if(e.type == SDL_QUIT){
@@ -2017,6 +2094,7 @@ int main(){
             }
             if(e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_SPACE){
                 mario.jump(&stage);
+                mario.wall_kick(&stage,keys);
             }    
             if(e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_m){
                 if (e.key.repeat == 0) {
@@ -2030,8 +2108,7 @@ int main(){
             }
         }
 
-        //キーの状態を取得
-        const Uint8* keys = SDL_GetKeyboardState(NULL);
+
         mario.update(&stage,renderer,items,keys);
         for(auto* e : enemies){
             e->update(&stage,renderer);
@@ -2058,6 +2135,7 @@ int main(){
         for (auto it = fires.begin(); it != fires.end();) {
             Fire* f = *it;
             f->update(&stage);
+            f->is_collision_mario(&mario,&stage);
         
             if (!f->is_alive) {
                 delete f;
